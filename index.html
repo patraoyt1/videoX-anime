@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VideoX Player - Anime Edition</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+        [x-cloak] { display: none !important; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #2563eb; }
+        
+        /* Esconde o botão nativo de tela cheia para forçar o uso do nosso Modo Cinema */
+        video::-webkit-media-controls-fullscreen-button {
+            display: none !important;
+        }
+        
+        /* Limpa bordas extras quando o container nativo entra em Fullscreen */
+        :fullscreen { background-color: black; }
+        :-webkit-full-screen { background-color: black; }
+    </style>
+
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('videoPlayer', () => ({
+                videos: [], 
+                videoAtual: null,
+                videoIdAtual: null, 
+                urlVideoAtual: '',
+                pastaSelecionada: false,
+                gerandoCapas: false,
+                
+                // Variáveis de Interface
+                telaCheia: false, 
+                mostrarBotoesTela: true, 
+                aberturaPulada: false,
+                timeoutControles: null,
+
+                modoSerie: JSON.parse(localStorage.getItem('videox_modo_serie')) ?? true,
+                videosAssistidos: JSON.parse(localStorage.getItem('videox_assistidos_v2')) || [],
+                progressoSalvo: JSON.parse(localStorage.getItem('videox_progresso')) || null,
+
+                // Inicia os detectores da API de Tela Cheia Real
+                init() {
+                    const sincronizarTelaCheia = () => {
+                        this.telaCheia = !!(document.fullscreenElement || document.webkitFullscreenElement);
+                        document.body.style.overflow = this.telaCheia ? 'hidden' : 'auto';
+                    };
+                    document.addEventListener('fullscreenchange', sincronizarTelaCheia);
+                    document.addEventListener('webkitfullscreenchange', sincronizarTelaCheia);
+                },
+
+                get indexVideoAtual() {
+                    if (!this.videoIdAtual) return -1;
+                    return this.videos.findIndex(v => v.id === this.videoIdAtual);
+                },
+                get temAnterior() {
+                    return this.indexVideoAtual > 0;
+                },
+                get temProximo() {
+                    return this.indexVideoAtual >= 0 && this.indexVideoAtual < this.videos.length - 1;
+                },
+
+                async selecionarPasta() {
+                    try {
+                        const dirHandle = await window.showDirectoryPicker();
+                        this.pastaSelecionada = true;
+                        let arquivosEncontrados = [];
+
+                        for await (const entry of dirHandle.values()) {
+                            if (entry.kind === 'file') {
+                                if (entry.name.match(/\.(mp4|webm|ogg|mkv)$/i)) {
+                                    const fileData = await entry.getFile();
+                                    const uniqueId = entry.name + '_' + fileData.size;
+
+                                    arquivosEncontrados.push({
+                                        handle: entry,
+                                        name: entry.name,
+                                        id: uniqueId,
+                                        coverUrl: null 
+                                    });
+                                }
+                            }
+                        }
+
+                        arquivosEncontrados.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+                        this.videos = arquivosEncontrados;
+
+                        if (this.progressoSalvo && this.videos.length > 0) {
+                            const videoEncontrado = this.videos.find(v => v.id === this.progressoSalvo.id || (!this.progressoSalvo.id && v.name === this.progressoSalvo.nome));
+                            if (videoEncontrado) {
+                                this.reproduzir(videoEncontrado, this.progressoSalvo.tempo);
+                            }
+                        }
+
+                        this.gerarCapasEmLote();
+
+                    } catch (erro) {
+                        console.error("Acesso cancelado ou erro:", erro);
+                    }
+                },
+
+                async gerarCapasEmLote() {
+                    this.gerandoCapas = true;
+                    for (let i = 0; i < this.videos.length; i++) {
+                        if (!this.videos[i].coverUrl) {
+                            try {
+                                const file = await this.videos[i].handle.getFile();
+                                const capaBase64 = await this.extrairFrameDoVideo(file);
+                                this.videos[i].coverUrl = capaBase64;
+                            } catch (e) {
+                                console.warn("Não foi possível gerar capa para: " + this.videos[i].name);
+                            }
+                        }
+                    }
+                    this.gerandoCapas = false;
+                },
+
+                extrairFrameDoVideo(file) {
+                    return new Promise((resolve, reject) => {
+                        const videoEle = document.createElement('video');
+                        const url = URL.createObjectURL(file);
+                        
+                        videoEle.src = url;
+                        videoEle.muted = true;
+                        videoEle.playsInline = true;
+                        videoEle.preload = 'metadata';
+
+                        videoEle.addEventListener('loadedmetadata', () => {
+                            const duracao = videoEle.duration;
+                            let tempoAleatorio = 0;
+                            if (duracao > 2) {
+                                const min = duracao * 0.10; 
+                                const max = duracao * 0.90; 
+                                tempoAleatorio = Math.random() * (max - min) + min;
+                            } else {
+                                tempoAleatorio = duracao / 2;
+                            }
+                            videoEle.currentTime = tempoAleatorio;
+                        });
+
+                        videoEle.addEventListener('seeked', () => {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = 160; 
+                            canvas.height = 90; 
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(videoEle, 0, 0, canvas.width, canvas.height);
+                            URL.revokeObjectURL(url); 
+                            resolve(canvas.toDataURL('image/jpeg', 0.7)); 
+                        }, { once: true });
+
+                        videoEle.addEventListener('error', () => {
+                            URL.revokeObjectURL(url);
+                            reject("Erro ao carregar vídeo oculto");
+                        });
+                    });
+                },
+
+                async reproduzir(videoObj, tempoInicial = 0) {
+                    const arquivo = await videoObj.handle.getFile();
+                    if (this.urlVideoAtual) {
+                        URL.revokeObjectURL(this.urlVideoAtual);
+                    }
+                    this.urlVideoAtual = URL.createObjectURL(arquivo);
+                    this.videoAtual = videoObj.name;
+                    this.videoIdAtual = videoObj.id;
+                    
+                    this.aberturaPulada = false;
+                    this.iniciarTimerControles();
+
+                    this.$nextTick(() => {
+                        const player = this.$refs.player;
+                        player.load();
+                        player.currentTime = tempoInicial;
+                        player.play().catch(e => console.log("Auto-play bloqueado.", e));
+                    });
+                },
+
+                iniciarTimerControles() {
+                    this.mostrarBotoesTela = true;
+                    if (this.timeoutControles) clearTimeout(this.timeoutControles);
+                    
+                    const player = this.$refs.player;
+                    if (player && player.paused) return;
+
+                    this.timeoutControles = setTimeout(() => {
+                        this.mostrarBotoesTela = false;
+                    }, 2500); 
+                },
+
+                salvarProgresso() {
+                    const player = this.$refs.player;
+                    if (!this.videoIdAtual || !player) return;
+
+                    const dadosProgresso = { id: this.videoIdAtual, nome: this.videoAtual, tempo: player.currentTime };
+                    localStorage.setItem('videox_progresso', JSON.stringify(dadosProgresso));
+                    this.progressoSalvo = dadosProgresso;
+                },
+
+                videoTerminou() {
+                    if (!this.videoIdAtual) return;
+                    this.alternarAssistido(this.videoIdAtual, true);
+
+                    if (this.modoSerie && this.temProximo) {
+                        setTimeout(() => {
+                            this.proximoVideo();
+                        }, 1000); 
+                    }
+                },
+
+                videoAnterior() {
+                    if (this.temAnterior) this.reproduzir(this.videos[this.indexVideoAtual - 1], 0);
+                },
+                proximoVideo() {
+                    if (this.temProximo) this.reproduzir(this.videos[this.indexVideoAtual + 1], 0);
+                },
+
+                toggleModoSerie() {
+                    this.modoSerie = !this.modoSerie;
+                    localStorage.setItem('videox_modo_serie', JSON.stringify(this.modoSerie));
+                },
+
+                alternarAssistido(videoId, forcarStatus = null) {
+                    const existe = this.videosAssistidos.includes(videoId);
+                    const deveAdicionar = forcarStatus !== null ? forcarStatus : !existe;
+
+                    if (deveAdicionar) {
+                        if (!existe) this.videosAssistidos.push(videoId);
+                    } else {
+                        this.videosAssistidos = this.videosAssistidos.filter(id => id !== videoId);
+                    }
+                    localStorage.setItem('videox_assistidos_v2', JSON.stringify(this.videosAssistidos));
+                },
+
+                formatarTempo(segundos) {
+                    if (!segundos) return "00:00";
+                    const min = Math.floor(segundos / 60);
+                    const seg = Math.floor(segundos % 60);
+                    return `${min.toString().padStart(2, '0')}:${seg.toString().padStart(2, '0')}`;
+                },
+
+                pularAbertura() {
+                    const player = this.$refs.player;
+                    if (player && this.videoAtual) {
+                        player.currentTime += 85; 
+                        this.aberturaPulada = true; 
+                    }
+                },
+
+                // ATUALIZADO: Aciona a API Nativa de Tela Cheia
+                async toggleTelaCheia() {
+                    const container = this.$refs.playerContainer;
+                    
+                    if (!this.telaCheia) {
+                        try {
+                            if (container.requestFullscreen) {
+                                await container.requestFullscreen();
+                            } else if (container.webkitRequestFullscreen) {
+                                await container.webkitRequestFullscreen(); // Safari
+                            }
+                        } catch (e) {
+                            console.warn("API de tela cheia bloqueada, fallback CSS ativado.");
+                        }
+                        this.telaCheia = true;
+                        document.body.style.overflow = 'hidden';
+                    } else {
+                        try {
+                            if (document.exitFullscreen && (document.fullscreenElement || document.webkitFullscreenElement)) {
+                                await document.exitFullscreen();
+                            } else if (document.webkitExitFullscreen) {
+                                await document.webkitExitFullscreen();
+                            }
+                        } catch (e) { }
+                        this.telaCheia = false;
+                        document.body.style.overflow = 'auto';
+                    }
+                    this.iniciarTimerControles();
+                }
+            }));
+        });
+    </script>
+</head>
+<body class="min-h-screen flex flex-col p-4 md:p-8" x-data="videoPlayer()" x-cloak>
+
+    <header x-show="!telaCheia" class="flex flex-col md:flex-row justify-between items-center gap-4 bg-gray-900 border border-blue-900/50 p-4 rounded-2xl shadow-lg mb-6">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-[0_0_15px_rgba(37,99,235,0.5)]">
+                <i class="fa-solid fa-play"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-black tracking-tight text-white">VideoX <span class="text-blue-500">Anime</span></h1>
+                <p class="text-xs text-gray-400 font-mono">Reprodução Local Otimizada</p>
+            </div>
+        </div>
+        
+        <button @click="selecionarPasta()" class="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-bold transition flex items-center gap-2 shadow-lg w-full md:w-auto justify-center">
+            <i class="fa-solid fa-folder-open"></i> 
+            <span x-text="pastaSelecionada ? 'Mudar Pasta' : 'Abrir Pasta Local'"></span>
+        </button>
+    </header>
+
+    <main class="flex flex-col lg:flex-row gap-6 flex-1">
+        
+        <section x-ref="playerContainer" :class="telaCheia ? 'fixed inset-0 z-50 bg-black flex flex-col justify-center' : 'flex-1 bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col relative'">
+            
+            <div x-show="!urlVideoAtual" class="absolute inset-0 flex flex-col items-center justify-center text-gray-500 bg-gray-900 z-10 p-6 text-center">
+                <i class="fa-solid fa-film text-6xl mb-4 opacity-50"></i>
+                <h2 class="text-xl font-bold text-gray-300">Nenhum vídeo em reprodução</h2>
+                <p class="text-sm mt-2">Clique em "Abrir Pasta Local" no topo para carregar seus vídeos do computador.</p>
+            </div>
+
+            <div :class="telaCheia ? 'w-full h-full' : 'w-full aspect-video flex-shrink-0'" 
+                 class="bg-black relative flex items-center justify-center overflow-hidden"
+                 @mousemove="iniciarTimerControles()"
+                 @touchstart="iniciarTimerControles()"
+                 @click="iniciarTimerControles()"
+                 @mouseleave="mostrarBotoesTela = false">
+                
+                <video 
+                    x-ref="player" 
+                    :src="urlVideoAtual" 
+                    @timeupdate="salvarProgresso()"
+                    @ended="videoTerminou()"
+                    @play="iniciarTimerControles()"
+                    @pause="iniciarTimerControles()"
+                    controls 
+                    controlslist="nodownload"
+                    class="w-full h-full outline-none object-contain"
+                    :class="telaCheia ? 'max-h-screen' : ''">
+                    Seu navegador não suporta a tag de vídeo.
+                </video>
+
+                <button x-show="urlVideoAtual && mostrarBotoesTela" 
+                        x-transition.opacity.duration.300ms
+                        @click.stop="toggleTelaCheia()"
+                        class="absolute top-4 right-4 bg-gray-900/80 hover:bg-white hover:text-black border border-gray-600 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg z-20 backdrop-blur-sm"
+                        :title="telaCheia ? 'Sair da Tela Cheia' : 'Modo Cinema / Tela Cheia'">
+                    <i class="fa-solid" :class="telaCheia ? 'fa-compress' : 'fa-expand'"></i>
+                </button>
+
+                <button x-show="urlVideoAtual && !aberturaPulada && mostrarBotoesTela" 
+                        x-transition.opacity.duration.300ms
+                        @click.stop="pularAbertura()"
+                        class="absolute bottom-16 right-4 bg-gray-900/80 hover:bg-white hover:text-black border border-gray-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg flex items-center gap-2 z-20 backdrop-blur-sm">
+                    <i class="fa-solid fa-forward-step"></i> Pular Abertura
+                </button>
+            </div>
+
+            <div x-show="!telaCheia" class="p-6 bg-gray-900 border-t border-gray-800 flex-1 flex flex-col justify-center">
+                <div class="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-2">
+                    <h2 class="text-xl md:text-2xl font-bold text-white truncate flex-1" x-text="videoAtual || '---'"></h2>
+                    
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button x-show="temAnterior" @click="videoAnterior()" class="bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 shadow-sm">
+                            <i class="fa-solid fa-backward-step"></i> Anterior
+                        </button>
+                        
+                        <button x-show="urlVideoAtual && !aberturaPulada" @click="pularAbertura()" class="bg-blue-600/20 hover:bg-blue-600 hover:text-white text-blue-400 border border-blue-600/50 px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 w-fit">
+                            <i class="fa-solid fa-bolt"></i> +85 Segundos
+                        </button>
+
+                        <button x-show="temProximo" @click="proximoVideo()" class="bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 shadow-sm">
+                            Próximo <i class="fa-solid fa-forward-step"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-4 text-sm text-gray-400 mt-2">
+                    <span class="flex items-center gap-1">
+                        <i class="fa-regular fa-clock"></i> Salvo automaticamente
+                    </span>
+                    <span x-show="progressoSalvo && progressoSalvo.id === videoIdAtual" class="text-blue-400 font-mono text-xs bg-blue-900/30 px-2 py-1 rounded border border-blue-800">
+                        Última marca: <span x-text="formatarTempo(progressoSalvo?.tempo)"></span>
+                    </span>
+                </div>
+            </div>
+        </section>
+
+        <aside x-show="!telaCheia" class="w-full lg:w-[420px] bg-gray-900 border border-gray-800 rounded-2xl flex flex-col shadow-xl flex-shrink-0" style="max-height: calc(100vh - 140px);">
+            
+            <div class="p-4 border-b border-gray-800 flex flex-col gap-3 bg-gray-800/40 rounded-t-2xl">
+                <div class="flex justify-between items-center">
+                    <h3 class="font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-list-ul text-blue-500"></i> Playlist Local
+                    </h3>
+                    <div class="flex items-center gap-2">
+                        <i x-show="gerandoCapas" class="fa-solid fa-spinner fa-spin text-blue-500 text-sm" title="Gerando miniaturas..."></i>
+                        <span class="text-xs font-mono bg-gray-700 text-gray-300 px-2 py-1 rounded-lg" x-text="videos.length + ' vídeos'"></span>
+                    </div>
+                </div>
+
+                <button @click="toggleModoSerie()" 
+                        class="w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-between transition border"
+                        :class="modoSerie ? 'bg-purple-950/40 border-purple-500/50 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.15)]' : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200'">
+                    <span class="flex items-center gap-2">
+                        <i class="fa-solid fa-tv text-sm" :class="modoSerie ? 'text-purple-400' : 'text-gray-500'"></i> 
+                        MODO SÉRIE (Auto-Play + Visto)
+                    </span>
+                    <div class="w-8 h-4 rounded-full p-0.5 transition duration-300 flex items-center"
+                         :class="modoSerie ? 'bg-purple-500 justify-end' : 'bg-gray-600 justify-start'">
+                        <div class="w-3 h-3 bg-white rounded-full shadow-md"></div>
+                    </div>
+                </button>
+            </div>
+            
+            <div class="p-3 overflow-y-auto custom-scrollbar flex-1 space-y-2">
+                <div x-show="videos.length === 0" class="text-center py-10 text-gray-500 text-sm">
+                    <i class="fa-regular fa-folder-open text-3xl mb-2 opacity-50 block"></i>
+                    A pasta selecionada não possui vídeos.
+                </div>
+
+                <template x-for="(video, index) in videos" :key="video.id">
+                    <div class="w-full flex items-center gap-1 group relative">
+                        
+                        <button 
+                            @click="reproduzir(video)" 
+                            class="flex-1 text-left p-2 rounded-xl transition flex items-center gap-3 border"
+                            :class="videoIdAtual === video.id ? 'bg-blue-900/20 border-blue-500/50 text-white shadow-md' : 'bg-transparent border-transparent hover:bg-gray-800 text-gray-300'">
+                            
+                            <div class="w-24 h-14 bg-gray-950 rounded-lg overflow-hidden flex-shrink-0 relative border border-gray-700 flex items-center justify-center group-hover:border-blue-500/50 transition">
+                                <template x-if="!video.coverUrl">
+                                    <i class="fa-solid fa-spinner fa-spin text-gray-600 text-xs"></i>
+                                </template>
+                                <template x-if="video.coverUrl">
+                                    <img :src="video.coverUrl" class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition duration-300">
+                                </template>
+                                <div class="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition">
+                                    <i class="fa-solid fa-play text-white text-sm drop-shadow-md"></i>
+                                </div>
+                            </div>
+
+                            <div class="flex-1 min-w-0 py-1">
+                                <div class="flex items-center gap-1.5 justify-between">
+                                    <p class="font-bold text-sm truncate leading-tight flex-1" 
+                                       :class="videoIdAtual === video.id ? 'text-blue-400' : 'group-hover:text-white'" 
+                                       x-text="video.name"></p>
+                                </div>
+                                
+                                <p x-show="progressoSalvo && progressoSalvo.id === video.id && videoIdAtual !== video.id" 
+                                   class="text-[10px] text-gray-500 mt-1 flex items-center gap-1 font-mono bg-gray-800 inline-block px-1.5 rounded">
+                                    <i class="fa-solid fa-rotate-left"></i> Parou em <span x-text="formatarTempo(progressoSalvo.tempo)"></span>
+                                </p>
+
+                                <div x-show="videoIdAtual === video.id" class="flex gap-0.5 items-end h-3 mt-1.5">
+                                    <div class="w-1 bg-blue-500 h-full animate-pulse"></div>
+                                    <div class="w-1 bg-blue-500 h-2/3 animate-pulse" style="animation-delay: 0.1s"></div>
+                                    <div class="w-1 bg-blue-500 h-4/5 animate-pulse" style="animation-delay: 0.2s"></div>
+                                </div>
+                            </div>
+                        </button>
+
+                        <button @click="alternarAssistido(video.id)" 
+                                class="p-3 rounded-xl transition-all self-stretch flex items-center justify-center text-base"
+                                :class="videosAssistidos.includes(video.id) ? 'text-green-500 opacity-100 hover:text-green-400' : 'text-gray-700 opacity-40 hover:opacity-100 hover:text-gray-400'"
+                                :title="videosAssistidos.includes(video.id) ? 'Marcar como não assistido' : 'Marcar como assistido'">
+                            <i class="fa-solid" :class="videosAssistidos.includes(video.id) ? 'fa-circle-check' : 'fa-regular fa-circle'"></i>
+                        </button>
+
+                    </div>
+                </template>
+            </div>
+        </aside>
+
+    </main>
+
+</body>
+</html>
