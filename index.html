@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VideoX Player - Anime Edition</title>
     
+    <!-- Tailwind CSS e FontAwesome -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
+    <!-- Alpine.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
     <style>
@@ -42,13 +44,14 @@
                 telaCheia: false, 
                 mostrarBotoesTela: true, 
                 aberturaPulada: false,
+                mostrarBotaoAbertura: false,
+                mostrarBotaoProximo: false, 
                 timeoutControles: null,
 
                 modoSerie: JSON.parse(localStorage.getItem('videox_modo_serie')) ?? true,
                 videosAssistidos: JSON.parse(localStorage.getItem('videox_assistidos_v2')) || [],
                 progressoSalvo: JSON.parse(localStorage.getItem('videox_progresso')) || null,
 
-                // Inicia os detectores da API de Tela Cheia Real
                 init() {
                     const sincronizarTelaCheia = () => {
                         this.telaCheia = !!(document.fullscreenElement || document.webkitFullscreenElement);
@@ -174,6 +177,8 @@
                     this.videoIdAtual = videoObj.id;
                     
                     this.aberturaPulada = false;
+                    this.mostrarBotaoAbertura = true; 
+                    this.mostrarBotaoProximo = false; 
                     this.iniciarTimerControles();
 
                     this.$nextTick(() => {
@@ -203,6 +208,19 @@
                     const dadosProgresso = { id: this.videoIdAtual, nome: this.videoAtual, tempo: player.currentTime };
                     localStorage.setItem('videox_progresso', JSON.stringify(dadosProgresso));
                     this.progressoSalvo = dadosProgresso;
+                },
+
+                monitorarTempos() {
+                    const player = this.$refs.player;
+                    if (!player || !player.duration) return;
+                    
+                    const tempoRestante = player.duration - player.currentTime;
+                    
+                    // ATUALIZADO: Mostra o Próximo Episódio nos últimos 2 minutos e 15 segundos (135s)
+                    this.mostrarBotaoProximo = (tempoRestante <= 135) && this.temProximo;
+
+                    // O Botão de Pular Abertura só vive por 6 MINUTOS (360 segundos). 
+                    this.mostrarBotaoAbertura = (player.currentTime < 360) && !this.aberturaPulada && !this.mostrarBotaoProximo;
                 },
 
                 videoTerminou() {
@@ -255,7 +273,6 @@
                     }
                 },
 
-                // ATUALIZADO: Aciona a API Nativa de Tela Cheia
                 async toggleTelaCheia() {
                     const container = this.$refs.playerContainer;
                     
@@ -264,10 +281,10 @@
                             if (container.requestFullscreen) {
                                 await container.requestFullscreen();
                             } else if (container.webkitRequestFullscreen) {
-                                await container.webkitRequestFullscreen(); // Safari
+                                await container.webkitRequestFullscreen(); 
                             }
                         } catch (e) {
-                            console.warn("API de tela cheia bloqueada, fallback CSS ativado.");
+                            console.warn("API de tela cheia bloqueada.");
                         }
                         this.telaCheia = true;
                         document.body.style.overflow = 'hidden';
@@ -327,7 +344,7 @@
                 <video 
                     x-ref="player" 
                     :src="urlVideoAtual" 
-                    @timeupdate="salvarProgresso()"
+                    @timeupdate="salvarProgresso(); monitorarTempos()"
                     @ended="videoTerminou()"
                     @play="iniciarTimerControles()"
                     @pause="iniciarTimerControles()"
@@ -341,17 +358,25 @@
                 <button x-show="urlVideoAtual && mostrarBotoesTela" 
                         x-transition.opacity.duration.300ms
                         @click.stop="toggleTelaCheia()"
-                        class="absolute top-4 right-4 bg-gray-900/80 hover:bg-white hover:text-black border border-gray-600 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg z-20 backdrop-blur-sm"
+                        class="absolute top-4 right-4 bg-gray-900/80 hover:bg-white hover:text-black border border-gray-600 text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg z-20 backdrop-blur-sm transition-colors duration-300"
                         :title="telaCheia ? 'Sair da Tela Cheia' : 'Modo Cinema / Tela Cheia'">
                     <i class="fa-solid" :class="telaCheia ? 'fa-compress' : 'fa-expand'"></i>
                 </button>
 
-                <button x-show="urlVideoAtual && !aberturaPulada && mostrarBotoesTela" 
+                <button x-show="urlVideoAtual && mostrarBotaoAbertura && mostrarBotoesTela" 
                         x-transition.opacity.duration.300ms
                         @click.stop="pularAbertura()"
-                        class="absolute bottom-16 right-4 bg-gray-900/80 hover:bg-white hover:text-black border border-gray-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg flex items-center gap-2 z-20 backdrop-blur-sm">
+                        class="absolute bottom-16 right-4 bg-gray-900/80 hover:bg-white hover:text-black border border-gray-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg flex items-center gap-2 z-20 backdrop-blur-sm transition-colors duration-300">
                     <i class="fa-solid fa-forward-step"></i> Pular Abertura
                 </button>
+
+                <button x-show="urlVideoAtual && mostrarBotaoProximo && mostrarBotoesTela && telaCheia" 
+                        x-transition.opacity.duration.300ms
+                        @click.stop="proximoVideo()"
+                        class="absolute bottom-16 right-4 bg-gray-900/80 hover:bg-white hover:text-black border border-gray-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg flex items-center gap-2 z-30 backdrop-blur-sm transition-colors duration-300">
+                    <i class="fa-solid fa-forward-step"></i> Próximo Episódio
+                </button>
+
             </div>
 
             <div x-show="!telaCheia" class="p-6 bg-gray-900 border-t border-gray-800 flex-1 flex flex-col justify-center">
@@ -363,7 +388,7 @@
                             <i class="fa-solid fa-backward-step"></i> Anterior
                         </button>
                         
-                        <button x-show="urlVideoAtual && !aberturaPulada" @click="pularAbertura()" class="bg-blue-600/20 hover:bg-blue-600 hover:text-white text-blue-400 border border-blue-600/50 px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 w-fit">
+                        <button x-show="urlVideoAtual && mostrarBotaoAbertura" @click="pularAbertura()" class="bg-blue-600/20 hover:bg-blue-600 hover:text-white text-blue-400 border border-blue-600/50 px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 w-fit">
                             <i class="fa-solid fa-bolt"></i> +85 Segundos
                         </button>
 
