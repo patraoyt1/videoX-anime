@@ -5,11 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VideoX Player - Anime Edition</title>
     
-    <!-- Tailwind CSS e FontAwesome -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Alpine.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
     <style>
@@ -216,7 +214,7 @@
                     
                     const tempoRestante = player.duration - player.currentTime;
                     
-                    // ATUALIZADO: Mostra o Próximo Episódio nos últimos 2 minutos e 15 segundos (135s)
+                    // Mostra o Próximo Episódio nos últimos 2 minutos e 15 segundos (135s)
                     this.mostrarBotaoProximo = (tempoRestante <= 135) && this.temProximo;
 
                     // O Botão de Pular Abertura só vive por 6 MINUTOS (360 segundos). 
@@ -237,8 +235,15 @@
                 videoAnterior() {
                     if (this.temAnterior) this.reproduzir(this.videos[this.indexVideoAtual - 1], 0);
                 },
+
+                // CORREÇÃO AQUI: Agora marca o atual como assistido antes de pular!
                 proximoVideo() {
-                    if (this.temProximo) this.reproduzir(this.videos[this.indexVideoAtual + 1], 0);
+                    if (this.temProximo) {
+                        if (this.videoIdAtual) {
+                            this.alternarAssistido(this.videoIdAtual, true);
+                        }
+                        this.reproduzir(this.videos[this.indexVideoAtual + 1], 0);
+                    }
                 },
 
                 toggleModoSerie() {
