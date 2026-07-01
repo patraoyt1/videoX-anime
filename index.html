@@ -285,33 +285,45 @@
                 },
 
                 async toggleTelaCheia() {
-                    const container = this.$refs.playerContainer;
-                    
-                    if (!this.telaCheia) {
-                        try {
-                            if (container.requestFullscreen) {
-                                await container.requestFullscreen();
-                            } else if (container.webkitRequestFullscreen) {
-                                await container.webkitRequestFullscreen(); 
-                            }
-                        } catch (e) {
-                            console.warn("API de tela cheia bloqueada.");
-                        }
-                        this.telaCheia = true;
-                        document.body.style.overflow = 'hidden';
-                    } else {
-                        try {
-                            if (document.exitFullscreen && (document.fullscreenElement || document.webkitFullscreenElement)) {
-                                await document.exitFullscreen();
-                            } else if (document.webkitExitFullscreen) {
-                                await document.webkitExitFullscreen();
-                            }
-                        } catch (e) { }
-                        this.telaCheia = false;
-                        document.body.style.overflow = 'auto';
-                    }
-                    this.iniciarTimerControles();
-                }
+    const container = this.$refs.playerContainer;
+    
+    if (!this.telaCheia) {
+        try {
+            if (container.requestFullscreen) {
+                await container.requestFullscreen();
+            } else if (container.webkitRequestFullscreen) {
+                await container.webkitRequestFullscreen(); 
+            }
+            
+            // NOVO: Força o celular a deitar a tela automaticamente
+            if (screen.orientation && screen.orientation.lock) {
+                await screen.orientation.lock("landscape").catch(err => console.warn("Rotação bloqueada pelo dispositivo.", err));
+            }
+            
+        } catch (e) {
+            console.warn("API de tela cheia bloqueada.");
+        }
+        this.telaCheia = true;
+        document.body.style.overflow = 'hidden';
+    } else {
+        try {
+            if (document.exitFullscreen && (document.fullscreenElement || document.webkitFullscreenElement)) {
+                await document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                await document.webkitExitFullscreen();
+            }
+            
+            // NOVO: Destrava a rotação quando sai da tela cheia
+            if (screen.orientation && screen.orientation.unlock) {
+                screen.orientation.unlock();
+            }
+            
+        } catch (e) { }
+        this.telaCheia = false;
+        document.body.style.overflow = 'auto';
+    }
+    this.iniciarTimerControles();
+}
             }));
         });
     </script>
@@ -352,19 +364,21 @@
                  @click="iniciarTimerControles()"
                  @mouseleave="mostrarBotoesTela = false">
                 
-                <video 
-                    x-ref="player" 
-                    :src="urlVideoAtual" 
-                    @timeupdate="salvarProgresso(); monitorarTempos()"
-                    @ended="videoTerminou()"
-                    @play="iniciarTimerControles()"
-                    @pause="iniciarTimerControles()"
-                    controls 
-                    controlslist="nodownload"
-                    class="w-full h-full outline-none object-contain"
-                    :class="telaCheia ? 'max-h-screen' : ''">
-                    Seu navegador não suporta a tag de vídeo.
-                </video>
+               <video 
+    x-ref="player" 
+    :src="urlVideoAtual" 
+    @timeupdate="salvarProgresso(); monitorarTempos()"
+    @ended="videoTerminou()"
+    @play="iniciarTimerControles()"
+    @pause="iniciarTimerControles()"
+    controls 
+    playsinline
+    webkit-playsinline
+    controlslist="nodownload"
+    class="w-full h-full outline-none object-contain"
+    :class="telaCheia ? 'max-h-screen' : ''">
+    Seu navegador não suporta a tag de vídeo.
+</video>
 
                 <button x-show="urlVideoAtual && mostrarBotoesTela" 
                         x-transition.opacity.duration.300ms
