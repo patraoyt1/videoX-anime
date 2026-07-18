@@ -2,7 +2,7 @@
   "name": "VideoX Anime",
   "short_name": "VideoX",
   "start_url": "./index.html",
-  "display": "fullscreen",
+  "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
   "orientation": "any",
