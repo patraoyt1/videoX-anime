@@ -1,4 +1,4 @@
-const CACHE_NAME = 'animex-v4';
+const CACHE_NAME = 'animex-v5';
 const urlsToCache = [
   './index.html',
   './manifest.json'
