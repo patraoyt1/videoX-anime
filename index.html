@@ -571,25 +571,20 @@
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-            // O parâmetro '?v=' com a data atual força o navegador a buscar um novo sw.js toda vez
-            const swUrl = './sw.js?v=' + new Date().getTime();
-            
-            navigator.serviceWorker.register(swUrl)
+            // URL fixa. O loop infinito foi removido.
+            navigator.serviceWorker.register('./sw.js')
                 .then(reg => {
                     console.log('Service Worker registrado com sucesso!');
                     
-                    // Força a verificação de novidades no servidor do GitHub
+                    // Verifica se houve mudanças reais no código do servidor
                     reg.update();
 
-                    // Ouve se uma nova versão do Service Worker foi detectada e instalada
                     reg.addEventListener('updatefound', () => {
                         const newWorker = reg.installing;
                         newWorker.addEventListener('statechange', () => {
-                            // Se o novo SW estiver pronto e já existir um antigo controlando a página...
                             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                console.log('Nova atualização encontrada! Recarregando a página...');
-                                // Força o recarregamento automático da página para exibir seu novo código
-                                window.location.reload(true);
+                                console.log('Atualização real encontrada! Recarregando a página...');
+                                window.location.reload();
                             }
                         });
                     });
@@ -598,3 +593,5 @@
         });
     }
 </script>
+</body>
+</html>
