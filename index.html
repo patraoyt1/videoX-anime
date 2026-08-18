@@ -98,8 +98,8 @@
                             }
                         }
 
-                        arquivosEncontrados.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
-                        this.videos = arquivosEncontrados;
+                        arquivosEncontrado.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+                        this.videos = arquivosEncontrado;
 
                         if (this.progressoSalvo && this.videos.length > 0) {
                             const videoEncontrado = this.videos.find(v => v.id === this.progressoSalvo.id || (!this.progressoSalvo.id && v.name === this.progressoSalvo.nome));
@@ -373,7 +373,6 @@
                  @touchstart="iniciarTimerControles()"
                  @mouseleave="mostrarBotoesTela = false">
                 
-                <!-- ATUALIZAÇÃO NO VÍDEO: 'controls' removido, eventos reativos de tempo adicionados e clique para Play/Pause -->
                 <video 
                     x-ref="player" 
                     :src="urlVideoAtual" 
@@ -391,9 +390,6 @@
                     Seu navegador não suporta a tag de vídeo.
                 </video>
 
-                <!-- BOTÕES E CONTROLES CUSTOMIZADOS ABAIXO -->
-                
-                <!-- Botão de Tela Cheia -->
                 <button x-show="urlVideoAtual && mostrarBotoesTela" 
                         x-transition.opacity.duration.300ms
                         @click.stop="toggleTelaCheia()"
@@ -402,7 +398,6 @@
                     <i class="fa-solid" :class="telaCheia ? 'fa-compress' : 'fa-expand'"></i>
                 </button>
 
-                <!-- Botão Pular Abertura (Subiu um pouco para não bater na nova barra de controles) -->
                 <button x-show="urlVideoAtual && mostrarBotaoAbertura && mostrarBotoesTela" 
                         x-transition.opacity.duration.300ms
                         @click.stop="pularAbertura()"
@@ -410,7 +405,6 @@
                     <i class="fa-solid fa-forward-step"></i> Pular Abertura
                 </button>
 
-                <!-- Botão Próximo Episódio -->
                 <button x-show="urlVideoAtual && mostrarBotaoProximo && mostrarBotoesTela && telaCheia" 
                         x-transition.opacity.duration.300ms
                         @click.stop="proximoVideo()"
@@ -418,32 +412,28 @@
                     <i class="fa-solid fa-forward-step"></i> Próximo Episódio
                 </button>
 
-                <!-- NOVA BARRA DE CONTROLE MINIMALISTA -->
+                <!-- CORREÇÃO AQUI: Removido 'pointer-events-none' da div pai para permitir interação na barra de progresso -->
                 <div x-show="urlVideoAtual && mostrarBotoesTela"
                      x-transition.opacity.duration.300ms
-                     class="absolute bottom-0 left-0 right-0 px-4 pb-6 pt-24 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end z-20 pointer-events-none">
+                     class="absolute bottom-0 left-0 right-0 px-4 pb-6 pt-24 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end z-20">
 
-                    <!-- max-w-3xl garante que ela seja "mais curta" em telas grandes -->
                     <div class="flex items-center gap-4 w-full max-w-3xl mx-auto pointer-events-auto">
-                        
-                        <!-- Botão Play/Pause Integrado -->
                         <button @click.stop="togglePlay()" class="text-white hover:text-blue-400 transition transform hover:scale-110 focus:outline-none">
                             <i class="fa-solid text-xl" :class="isPlaying ? 'fa-pause' : 'fa-play'"></i>
                         </button>
 
                         <span class="text-white text-xs font-mono drop-shadow-md" x-text="formatarTempo(currentTime)"></span>
 
-                        <!-- Linha de Progresso Fina e Interativa -->
+                        <!-- Linha de Progresso -->
                         <div class="relative flex-1 h-1 bg-gray-600/50 rounded-full cursor-pointer group transition-all duration-300 hover:h-2"
                              @click.stop="avancarProgresso($event)">
-                             
-                            <!-- Barra Preenchida -->
+                            
                             <div class="absolute top-0 left-0 h-full bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.6)]"
                                  :style="`width: ${duration ? (currentTime / duration) * 100 : 0}%`"></div>
-                                 
-                            <!-- Esfera (Thumb) escondida que aparece no Hover -->
+                            
                             <div class="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 shadow-md"
-                                 :style="`left: calc(${duration ? (currentTime / duration) * 100 : 0}% - 6px)`"></div>
+                                 :style="`left: calc(${duration ? (currentTime / just_now_calc = (currentTime / duration) * 100 : 0) - 6}%)`">
+                            </div>
                         </div>
 
                         <span class="text-white text-xs font-mono drop-shadow-md" x-text="formatarTempo(duration)"></span>
@@ -503,7 +493,7 @@
                         MODO SÉRIE (Auto-Play + Visto)
                     </span>
                     <div class="w-8 h-4 rounded-full p-0.5 transition duration-300 flex items-center"
-                         :class="modoSerie ? 'bg-purple-500 justify-end' : 'bg-gray-600 justify-start'">
+                     :class="modoSerie ? 'bg-purple-500 justify-end' : 'bg-gray-600 justify-start'">
                         <div class="w-3 h-3 bg-white rounded-full shadow-md"></div>
                     </div>
                 </button>
@@ -542,7 +532,7 @@
                                        x-text="video.name"></p>
                                 </div>
                                 
-                                <p x-show="progressoSalvo && progressoSalvo.id === video.id && videoIdAtual !== video.id" 
+                                <p x-show="progressoSalvo && progressoSalvo.id === video.id &&_videoIdAtual !== video.id" 
                                    class="text-[10px] text-gray-500 mt-1 flex items-center gap-1 font-mono bg-gray-800 inline-block px-1.5 rounded">
                                     <i class="fa-solid fa-rotate-left"></i> Parou em <span x-text="formatarTempo(progressoSalvo.tempo)"></span>
                                 </p>
