@@ -44,10 +44,12 @@
                 mostrarBotaoAbertura: false,
                 mostrarBotaoProximo: false, 
                 timeoutControles: null,
-
+                
+                clickTimer: null,
                 currentTime: 0,
                 duration: 0,
                 isPlaying: false,
+                isDragging: false,
 
                 modoSerie: JSON.parse(localStorage.getItem('videox_modo_serie')) ?? true,
                 videosAssistidos: JSON.parse(localStorage.getItem('videox_assistidos_v2')) || [],
@@ -197,28 +199,107 @@
                     else player.pause();
                 },
 
+                atualizarTempo(e) {
+                    if (e.target.duration && this.duration !== e.target.duration) {
+                        this.duration = e.target.duration;
+                    }
+                    if (!this.isDragging) {
+                        this.currentTime = e.target.currentTime;
+                        this.salvarProgresso();
+                        this.monitorarTempos();
+                    }
+                },
+
+                // NOVA LÓGICA DE BARRA: Pointer Events e Captura Nativa (100% Fluido)
+                iniciarArraste(e) {
+                    this.isDragging = true;
+                    // Garante que o arrasto não falhe mesmo se o dedo sair do elemento
+                    if (e.currentTarget.setPointerCapture) {
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                    }
+                    this.avancarProgresso(e);
+                },
+
+                arrastarProgresso(e) {
+                    if (this.isDragging) {
+                        this.avancarProgresso(e);
+                    }
+                },
+
                 avancarProgresso(e) {
-                    const player = this.$refs.player;
-                    if (!player || !player.duration) return;
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+                    if (!this.duration) return;
+                    const barra = this.$refs.barraProgresso;
+                    if (!barra) return;
+                    
+                    const rect = barra.getBoundingClientRect();
+                    const clientX = e.clientX; // Pointer Events unificam o X para celular e mouse!
+                    
                     let pos = (clientX - rect.left) / rect.width;
                     pos = Math.max(0, Math.min(1, pos));
-                    player.currentTime = pos * player.duration;
+                    this.currentTime = pos * this.duration;
+
+                    // Aplica o tempo de imediato no vídeo caso tenha sido um clique rápido
+                    if (e.type === 'pointerdown') {
+                        const player = this.$refs.player;
+                        if (player) player.currentTime = this.currentTime;
+                    }
+                },
+
+                soltarArraste(e) {
+                    if (this.isDragging) {
+                        this.isDragging = false;
+                        
+                        // Libera a captura da tela
+                        if (e.currentTarget.releasePointerCapture) {
+                            e.currentTarget.releasePointerCapture(e.pointerId);
+                        }
+                        
+                        const player = this.$refs.player;
+                        if (player && !isNaN(this.currentTime)) {
+                            player.currentTime = this.currentTime;
+                        }
+                        this.iniciarTimerControles();
+                    }
                 },
 
                 pular10(frente = true) {
                     const player = this.$refs.player;
                     if (player) {
                         player.currentTime += frente ? 10 : -10;
+                        this.iniciarTimerControles(); 
+                    }
+                },
+
+                lidarCliqueVideo(e) {
+                    if (this.clickTimer === null) {
+                        this.clickTimer = setTimeout(() => {
+                            this.togglePlay();
+                            this.clickTimer = null;
+                        }, 300);
+                    } else {
+                        clearTimeout(this.clickTimer);
+                        this.clickTimer = null;
+                        this.pularPorToque(e);
                     }
                 },
 
                 pularPorToque(e) {
                     const player = this.$refs.player;
                     if (!player) return;
+                    
                     const rect = player.getBoundingClientRect();
-                    const clickX = e.clientX - rect.left;
+                    
+                    let clientX = 0;
+                    if (e.changedTouches && e.changedTouches.length > 0) {
+                        clientX = e.changedTouches[0].clientX;
+                    } else if (e.touches && e.touches.length > 0) {
+                        clientX = e.touches[0].clientX;
+                    } else {
+                        clientX = e.clientX;
+                    }
+
+                    const clickX = clientX - rect.left;
+                    
                     if (clickX > rect.width / 2) {
                         this.pular10(true);
                     } else {
@@ -230,10 +311,12 @@
                     this.mostrarBotoesTela = true;
                     if (this.timeoutControles) clearTimeout(this.timeoutControles);
                     const player = this.$refs.player;
-                    if (player && player.paused) return;
+                    if (player && player.paused && !this.isDragging) return;
 
                     this.timeoutControles = setTimeout(() => {
-                        this.mostrarBotoesTela = false;
+                        if (!this.isDragging) {
+                            this.mostrarBotoesTela = false;
+                        }
                     }, 2500); 
                 },
 
@@ -323,7 +406,7 @@
                             }
                             
                             if (screen.orientation && screen.orientation.lock) {
-                                await screen.orientation.lock("landscape").catch(err => console.warn("Rotação bloqueada pelo dispositivo.", err));
+                                await screen.orientation.lock("landscape").catch(err => console.warn("Rotação bloqueada.", err));
                             }
                         } catch (e) {
                             console.warn("API de tela cheia bloqueada.");
@@ -389,17 +472,16 @@
                 <video 
                     x-ref="player" 
                     :src="urlVideoAtual" 
-                    @timeupdate="currentTime = $event.target.currentTime; salvarProgresso(); monitorarTempos()"
+                    @timeupdate="atualizarTempo($event)"
                     @loadedmetadata="duration = $event.target.duration"
                     @ended="videoTerminou()"
                     @play="isPlaying = true; iniciarTimerControles()"
                     @pause="isPlaying = false; iniciarTimerControles()"
-                    @click="togglePlay()"
-                    @dblclick="pularPorToque($event)"
+                    @click="lidarCliqueVideo($event)"
                     playsinline
                     webkit-playsinline
                     controlslist="nodownload"
-                    class="w-full h-full outline-none object-contain cursor-pointer"
+                    class="w-full h-full outline-none object-contain cursor-pointer touch-manipulation"
                     :class="telaCheia ? 'max-h-screen' : ''">
                     Seu navegador não suporta a tag de vídeo.
                 </video>
@@ -448,15 +530,21 @@
 
                         <span class="text-white text-xs font-mono drop-shadow-md" x-text="formatarTempo(currentTime)"></span>
 
-                        <div class="relative flex-1 h-1 bg-gray-600/50 rounded-full cursor-pointer group transition-all duration-300 hover:h-2"
-                             @click.stop="avancarProgresso($event)"
-                             @touchstart.stop="avancarProgresso($event)"
-                             @touchmove.prevent="avancarProgresso($event)">
+                        <!-- O ARRASTE FLUIDO FINAL: Uso de pointer events puros com touch-none previne qualquer conflito! -->
+                        <div x-ref="barraProgresso"
+                             class="relative flex-1 h-6 flex items-center cursor-pointer group touch-none"
+                             @pointerdown.prevent="iniciarArraste($event)"
+                             @pointermove="arrastarProgresso($event)"
+                             @pointerup="soltarArraste($event)"
+                             @pointercancel="soltarArraste($event)">
 
-                            <div class="absolute top-0 left-0 h-full bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.6)]"
+                            <div class="absolute w-full h-1 bg-gray-600/50 rounded-full group-hover:h-2 transition-all duration-300"></div>
+
+                            <div class="absolute left-0 h-1 bg-blue-500 rounded-full group-hover:h-2 transition-all duration-300 shadow-[0_0_10px_rgba(59,130,246,0.6)] pointer-events-none"
                                  :style="`width: ${duration ? (currentTime / duration) * 100 : 0}%`"></div>
                             
-                            <div class="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 shadow-md"
+                            <div class="absolute w-3 h-3 bg-white rounded-full shadow-md pointer-events-none transition-transform duration-200"
+                                 :class="isDragging ? 'scale-125' : 'scale-100'"
                                  :style="`left: calc(${duration ? (currentTime / duration) * 100 : 0}% - 6px)`"></div>
                         </div>
 
